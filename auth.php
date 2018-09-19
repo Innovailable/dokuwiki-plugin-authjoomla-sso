@@ -1,16 +1,17 @@
 <?php
 /**
- * DokuWiki Plugin authjoomla (Auth Component)
+ * DokuWiki Plugin authjoomlasso (Auth Component)
  *
  * @license GPL 2 http://www.gnu.org/licenses/gpl-2.0.html
  * @author  Andreas Gohr <dokuwiki@cosmocode.de>
+ * @author  Stephan Thamm <stephan@innovailable.eu>
  */
 
 /**
  * Class auth_plugin_authjoomla
  *
  */
-class auth_plugin_authjoomla extends auth_plugin_authpdo
+class auth_plugin_authjoomlasso extends auth_plugin_authpdo
 {
 
     /** @inheritdoc */
@@ -18,71 +19,68 @@ class auth_plugin_authjoomla extends auth_plugin_authpdo
     {
         $this->initializeConfiguration();
         parent::__construct(); // PDO setup
-        $this->ssoByCookie();
+
+        $this->cando['external'] = true;
+		$this->cando['logout'] = false;
     }
 
-    /** @inheritdoc */
-    public function checkPass($user, $pass)
-    {
-        // username already set by SSO
-        if ($_SERVER['REMOTE_USER'] &&
-            $_SERVER['REMOTE_USER'] == $user &&
-            !empty($this->getConf('cookiename'))
-        ) return true;
+    public function trustExternal($user, $pass, $sticky = true) {
+        if ($user) {
+            msg("This auth plugin does not support manual login");
+        }
 
-        // support check of login data
-        if ($pass == "sso_only" &&
-            $user == $this->ssoCookieUser()
-        ) return true;
-
-        return parent::checkPass($user, $pass);
+        return $this->loginWithCookie($this->getConf('backendcookie')) || $this->loginWithCookie($this->getConf('frontendcookie'));
     }
 
-    /**
-     * Get user set by Joomla Cookie
-     */
-    protected function ssoCookieUser()
-    {
-        if (empty($_COOKIE['joomla_user_state'])) return;
-        if ($_COOKIE['joomla_user_state'] !== 'logged_in') return;
-        if (empty($this->getConf('cookiename'))) return false;
-        if (empty($_COOKIE[$this->getConf('cookiename')])) return false;
+    protected function timedOut($now, $start) {
+        global $conf;
 
-        // check session in Joomla DB
-        $session = $_COOKIE[$this->getConf('cookiename')];
+        $timeout = $conf['auth_security_timeout'];
+
+        if (empty($timeout)) return false;
+        if ($timeout <= 0) return true;
+
+        return $now > $start + $timeout;
+    }
+
+    protected function loginWithCookie($cookie_name) {
+        global $USERINFO;
+
+        if (empty($cookie_name)) return false;
+
+        $session = $_COOKIE[$cookie_name];
+        if (empty($session)) return false;
+
         $sql = $this->getConf('select-session');
         $result = $this->_query($sql, ['session' => $session]);
         if ($result === false) return false;
 
-        return $result[0]['user'];
-    }
+        $user = $result[0]['user'];
 
-    /**
-     * Check if Joomla Cookies exist and use them to auto login
-     */
-    protected function ssoByCookie()
-    {
-        global $INPUT;
+        if (empty($user)) return false;
 
-        if (!empty($_COOKIE[DOKU_COOKIE])) return; // DokuWiki auth cookie found
+        $now = time();
 
-        $user = $this->ssoCookieUser();
+        if ($_SESSION[DOKU_COOKIE]['auth']['user'] == $user && !$this->timedOut($now, $_SESSION[DOKU_COOKIE]['auth']['time'])) {
+			$USERINFO = $_SESSION[DOKU_COOKIE]['auth']['info'];
+			$_SERVER['REMOTE_USER'] = $user;
+            return true;
+        } else {
+            $data = $this->getUserData($user, true);
 
-        if ($user == false) return;
- 
-        // force login
-        $_SERVER['REMOTE_USER'] = $user;
-        $INPUT->set('u', $_SERVER['REMOTE_USER']);
-        $INPUT->set('p', 'sso_only');
-    }
+            if ($data == false) return false;
 
-    /**
-     * Remove the joomla cookie
-     */
-    public function logOff()
-    {
-        parent::logOff();
-        setcookie('joomla_user_state', '', time() - 3600, '/');
+			$USERINFO['name'] = $data['name'];
+			$USERINFO['mail'] = $data['mail'];
+			$USERINFO['grps'] = $data['grps'];
+
+			$_SERVER['REMOTE_USER'] = $user;
+			$_SESSION[DOKU_COOKIE]['auth']['user'] = $user;
+			$_SESSION[DOKU_COOKIE]['auth']['info'] = $USERINFO;
+			$_SESSION[DOKU_COOKIE]['auth']['time'] = $now;
+
+            return true;
+        }
     }
 
     /**

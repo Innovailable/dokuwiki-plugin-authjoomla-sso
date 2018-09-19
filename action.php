@@ -4,12 +4,13 @@
  *
  * @license GPL 2 http://www.gnu.org/licenses/gpl-2.0.html
  * @author  Andreas Gohr <dokuwiki@cosmocode.de>
+ * @author  Stephan Thamm <stephan@innovailable.eu>
  */
 
 // must be run within Dokuwiki
 if(!defined('DOKU_INC')) die();
 
-class action_plugin_authjoomla extends DokuWiki_Action_Plugin {
+class action_plugin_authjoomlasso extends DokuWiki_Action_Plugin {
 
     /**
      * Registers a callback function for a given event
